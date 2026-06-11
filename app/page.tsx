@@ -44,6 +44,7 @@ export default function Home() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiSetupNeeded, setApiSetupNeeded] = useState(false);
   const [searched, setSearched] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState(false);
 
@@ -57,6 +58,7 @@ export default function Home() {
     if (!city.trim()) return;
     setLoading(true);
     setError(null);
+    setApiSetupNeeded(false);
     setBusinesses([]);
     setSearched(false);
 
@@ -68,7 +70,10 @@ export default function Home() {
       });
       const res = await fetch(`/api/search?${params}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Search failed");
+      if (!res.ok) {
+        if (res.status === 503 && data.setup) setApiSetupNeeded(true);
+        throw new Error(data.error || "Search failed");
+      }
       setBusinesses(data.businesses || []);
       setSearched(true);
     } catch (err) {
@@ -197,16 +202,59 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Error */}
-        {error && (
+        {/* API Setup Guide */}
+        {apiSetupNeeded && (
+          <div className="bg-gray-900 border border-yellow-700 rounded-xl p-6 space-y-5">
+            <div>
+              <h2 className="text-yellow-400 font-semibold text-base">API Key Required</h2>
+              <p className="text-gray-400 text-sm mt-1">Choose one of the two options below, add the key to your <code className="bg-gray-800 px-1 rounded text-gray-200">.env.local</code> file, then restart the dev server.</p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              {/* Option A */}
+              <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-white font-medium text-sm">Option A — Google Places API</span>
+                  <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded-full">Recommended</span>
+                </div>
+                <p className="text-gray-400 text-xs">$200/month free credit — enough for ~40,000 searches. Best data quality.</p>
+                <ol className="text-gray-300 text-xs space-y-1 list-decimal list-inside">
+                  <li>Go to <span className="text-blue-400">console.cloud.google.com</span></li>
+                  <li>Enable <strong>Places API</strong> in APIs &amp; Services</li>
+                  <li>Create an API key under Credentials</li>
+                  <li>Add to <code className="bg-gray-700 px-1 rounded">.env.local</code>:</li>
+                </ol>
+                <code className="block bg-gray-900 border border-gray-700 rounded p-2 text-xs text-green-300 mt-1 select-all">
+                  GOOGLE_PLACES_API_KEY=AIza...
+                </code>
+              </div>
+
+              {/* Option B */}
+              <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-white font-medium text-sm">Option B — SerpAPI</span>
+                  <span className="text-xs bg-blue-900 text-blue-300 px-2 py-0.5 rounded-full">100 free/mo</span>
+                </div>
+                <p className="text-gray-400 text-xs">100 free searches/month. No billing required to start. Great for testing.</p>
+                <ol className="text-gray-300 text-xs space-y-1 list-decimal list-inside">
+                  <li>Sign up at <span className="text-blue-400">serpapi.com</span></li>
+                  <li>Copy your API key from the dashboard</li>
+                  <li>Add to <code className="bg-gray-700 px-1 rounded">.env.local</code>:</li>
+                </ol>
+                <code className="block bg-gray-900 border border-gray-700 rounded p-2 text-xs text-green-300 mt-1 select-all">
+                  SERPAPI_KEY=your_key_here
+                </code>
+              </div>
+            </div>
+
+            <p className="text-gray-500 text-xs">After adding the key, restart the server with <code className="bg-gray-800 px-1 rounded text-gray-300">npm run dev</code> and search again.</p>
+          </div>
+        )}
+
+        {/* Error (non-setup) */}
+        {error && !apiSetupNeeded && (
           <div className="bg-red-950 border border-red-800 text-red-300 rounded-xl p-4 text-sm">
             <strong>Error:</strong> {error}
-            {error.includes("API key") && (
-              <p className="mt-2 text-red-400">
-                Add <code className="bg-red-900 px-1 rounded">GOOGLE_PLACES_API_KEY=your_key</code> to your{" "}
-                <code className="bg-red-900 px-1 rounded">.env.local</code> file and restart the server.
-              </p>
-            )}
           </div>
         )}
 
