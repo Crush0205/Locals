@@ -1043,9 +1043,9 @@ function buildDungeonEnvironment(scene){
 function createArena(container){
   const scene = new THREE.Scene();
   const w = container.clientWidth || 480, h = container.clientHeight || 300;
-  const camera = new THREE.PerspectiveCamera(34, w/h, 0.1, 30);
-  camera.position.set(0, 1.5, 5.1);
-  camera.lookAt(0, 1.15, -0.7);
+  const camera = new THREE.PerspectiveCamera(38, w/h, 0.1, 30);
+  camera.position.set(-0.8, 1.8, 4.3);
+  camera.lookAt(0.25, 1.0, -1.2);
 
   scene.add(new THREE.AmbientLight(0x4a3f5c, 0.6));
   const key = new THREE.DirectionalLight(0xffb27a, 1.05); key.position.set(3,5,4); scene.add(key);
