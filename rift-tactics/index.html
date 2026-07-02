@@ -78,14 +78,16 @@
     100%{opacity:0; transform:translate(-50%,-34px) scale(1);}
   }
 
-  /* SPRITE VIEWPORTS (shared by hero + enemy cards) */
-  .sprite-slot{width:100%; height:78px; margin-bottom:2px; position:relative;}
-  .sprite-slot canvas{display:block; width:100%!important; height:100%!important;}
-
-  @keyframes cardShake{0%,100%{transform:translateX(0);} 25%{transform:translateX(-3px);} 50%{transform:translateX(3px);} 75%{transform:translateX(-2px);}}
-  @keyframes cardLunge{0%{transform:translateY(0);} 40%{transform:translateY(-4px) scale(1.03);} 100%{transform:translateY(0);}}
-  .hero-card.anim-hit, .enemy-card.anim-hit{animation:cardShake .35s ease-out;}
-  .enemy-card.anim-attack{animation:cardLunge .4s ease-out;}
+  /* ARENA — the shared 3D stage: dungeon backdrop + all six characters */
+  .arena-wrap{
+    position:relative; height:300px; border-radius:12px; overflow:hidden;
+    border:1px solid var(--panel-border); background:#0b0910; margin-bottom:10px;
+  }
+  .arena-wrap canvas{display:block; width:100%!important; height:100%!important;}
+  .arena-wrap::after{
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse at 50% 62%, transparent 45%, rgba(0,0,0,0.62) 100%);
+  }
 
   /* LOG */
   .log-box{
@@ -930,73 +932,202 @@ function poseWraith(m,state,t){
 
 const POSE_FNS = {biped:poseBiped, quadruped:poseQuadruped, wraith:poseWraith};
 
+/* arena position: x/z placement on the battlefield, groundY lifts each rig so
+   its feet/base rest on the dungeon floor (rigs were modeled around their own
+   local origin, so this varies per silhouette), scale balances their relative
+   sizes now that they share one camera instead of individually-framed shots */
 const CHAR_CONFIG = {
-  kael:     {build:buildKael,     archetype:'biped',     cam:{pos:[0,0.95,2.7],  look:[0,0.78,0]}},
-  rin:      {build:buildRin,      archetype:'biped',     cam:{pos:[0,0.9,2.55],  look:[0,0.72,0]}},
-  mira:     {build:buildMira,     archetype:'biped',     cam:{pos:[0,1.15,3.05], look:[0,1.0,0]}},
-  sentinel: {build:buildSentinel, archetype:'biped',     cam:{pos:[0,1.05,3.2],  look:[0,0.85,0]}},
-  stalker:  {build:buildStalker,  archetype:'quadruped', cam:{pos:[0,0.65,2.9],  look:[0,0.4,0]}},
-  wraith:   {build:buildWraith,   archetype:'wraith',    cam:{pos:[0,0.95,2.7],  look:[0,0.75,0]}},
+  kael:     {build:buildKael,     archetype:'biped',     isEnemy:false, arena:{x:-1.0,  z:1.0,  groundY:1.02, scale:1.0 }},
+  rin:      {build:buildRin,      archetype:'biped',     isEnemy:false, arena:{x:0,     z:1.15, groundY:0.95, scale:1.05}},
+  mira:     {build:buildMira,     archetype:'biped',     isEnemy:false, arena:{x:1.0,   z:1.0,  groundY:0.35, scale:1.05}},
+  stalker:  {build:buildStalker,  archetype:'quadruped', isEnemy:true,  arena:{x:-1.7,  z:-1.3, groundY:0.29, scale:1.15}},
+  sentinel: {build:buildSentinel, archetype:'biped',     isEnemy:true,  arena:{x:0,     z:-1.5, groundY:0.98, scale:1.1 }},
+  wraith:   {build:buildWraith,   archetype:'wraith',    isEnemy:true,  arena:{x:1.7,   z:-1.3, groundY:0.55, scale:1.1 }},
 };
 
 const modelRegistry = {};
+let arena = null;
 
-function createMiniViewport(container, id){
-  const cfg = CHAR_CONFIG[id];
+function shadeColor(hex, factor){
+  const c = new THREE.Color(hex);
+  c.multiplyScalar(factor);
+  return '#' + c.getHexString();
+}
+function makeStoneTexture(size, baseColor, jointColor, cols, rows){
+  const cvs = document.createElement('canvas');
+  cvs.width = cvs.height = size;
+  const ctx = cvs.getContext('2d');
+  ctx.fillStyle = jointColor;
+  ctx.fillRect(0,0,size,size);
+  const cw = size/cols, ch = size/rows;
+  for(let r=0;r<rows;r++){
+    const offset = (r%2)*cw*0.5;
+    for(let c=-1;c<=cols;c++){
+      const x = c*cw + offset, y = r*ch;
+      ctx.fillStyle = shadeColor(baseColor, 0.8 + Math.random()*0.35);
+      ctx.fillRect(x+2, y+2, cw-4, ch-4);
+    }
+  }
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function buildDungeonEnvironment(scene){
+  scene.fog = new THREE.FogExp2(0x14111c, 0.09);
+
+  const floorTex = makeStoneTexture(256, 0x3a3342, 0x18141e, 6, 6);
+  floorTex.repeat.set(7,5);
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(18,11),
+    new THREE.MeshStandardMaterial({map:floorTex, roughness:0.95})
+  );
+  floor.rotation.x = -Math.PI/2;
+  scene.add(floor);
+
+  const wallTex = makeStoneTexture(256, 0x2a2436, 0x120f18, 7, 4);
+  wallTex.repeat.set(8,3);
+  const wall = new THREE.Mesh(
+    new THREE.PlaneGeometry(18,7),
+    new THREE.MeshStandardMaterial({map:wallTex, roughness:0.95})
+  );
+  wall.position.set(0,3.1,-3.1);
+  scene.add(wall);
+
+  const archway = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.1,3.6),
+    new THREE.MeshStandardMaterial({color:0x07050a, roughness:1})
+  );
+  archway.position.set(0,1.75,-3.05);
+  scene.add(archway);
+
+  const pillarTex = makeStoneTexture(128, 0x352e40, 0x161320, 2, 8);
+  pillarTex.repeat.set(1,4);
+  function pillar(x){
+    const p = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.34,0.4,3.6,10),
+      new THREE.MeshStandardMaterial({map:pillarTex, roughness:0.9})
+    );
+    p.position.set(x,1.8,-1.4);
+    scene.add(p);
+  }
+  pillar(-2.7); pillar(2.7);
+
+  const torchLights = [];
+  function torch(x){
+    const bracket = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04,0.05,0.3,6),
+      new THREE.MeshStandardMaterial({color:0x1a1512, roughness:0.8})
+    );
+    bracket.position.set(x,2.15,-1.05);
+    bracket.rotation.z = Math.PI/2.4;
+    scene.add(bracket);
+
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(0.09,0.24,6),
+      new THREE.MeshStandardMaterial({color:0xffb15c, emissive:0xe2793d, emissiveIntensity:1.6, roughness:0.4})
+    );
+    flame.position.set(x,2.34,-0.95);
+    scene.add(flame);
+
+    const light = new THREE.PointLight(0xff9448, 1.2, 5.5, 2);
+    light.position.set(x,2.3,-0.9);
+    scene.add(light);
+    torchLights.push(light);
+  }
+  torch(-2.7); torch(2.7);
+
+  return {torchLights};
+}
+
+function createArena(container){
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 20);
-  camera.position.set(...cfg.cam.pos);
-  camera.lookAt(...cfg.cam.look);
+  const w = container.clientWidth || 480, h = container.clientHeight || 300;
+  const camera = new THREE.PerspectiveCamera(34, w/h, 0.1, 30);
+  camera.position.set(0, 1.5, 5.1);
+  camera.lookAt(0, 1.15, -0.7);
 
-  scene.add(new THREE.AmbientLight(0x554466, 0.75));
-  const key = new THREE.DirectionalLight(0xffb27a, 1.3); key.position.set(2,3,2.5); scene.add(key);
-  const rim = new THREE.DirectionalLight(0x4fd1c0, 0.5); rim.position.set(-2,1.5,-2); scene.add(rim);
+  scene.add(new THREE.AmbientLight(0x4a3f5c, 0.6));
+  const key = new THREE.DirectionalLight(0xffb27a, 1.05); key.position.set(3,5,4); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x4fd1c0, 0.3); rim.position.set(-4,3,-3); scene.add(rim);
 
-  const built = cfg.build();
-  scene.add(built.group);
+  const {torchLights} = buildDungeonEnvironment(scene);
 
   const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
-  const w = container.clientWidth || 72, h = container.clientHeight || 78;
   renderer.setSize(w,h);
   container.appendChild(renderer.domElement);
 
+  return {scene, camera, renderer, torchLights};
+}
+
+function createArenaModel(id, scene){
+  const cfg = CHAR_CONFIG[id];
+  const anchor = new THREE.Group();
+  anchor.position.set(cfg.arena.x, cfg.arena.groundY, cfg.arena.z);
+
+  const built = cfg.build();
+  built.group.scale.multiplyScalar(cfg.arena.scale ?? 1);
+  anchor.add(built.group);
+
+  let ring = null;
+  if(cfg.isEnemy){
+    ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.5,0.62,28),
+      new THREE.MeshBasicMaterial({color:0xd2495a, transparent:true, opacity:0.9, side:THREE.DoubleSide})
+    );
+    ring.rotation.x = -Math.PI/2;
+    ring.position.y = 0.02 - cfg.arena.groundY;
+    ring.visible = false;
+    anchor.add(ring);
+  }
+
+  scene.add(anchor);
   modelRegistry[id] = Object.assign(
-    {scene, camera, renderer, animState:'idle', animStart:performance.now(), archetype:cfg.archetype},
+    {anchor, ring, animState:'idle', animStart:performance.now(), archetype:cfg.archetype},
     built
   );
 }
 
 function animateModels(now){
   requestAnimationFrame(animateModels);
+  if(!arena) return;
+  arena.torchLights.forEach((l,i)=>{
+    l.intensity = 1.15 + Math.sin(now*0.006 + i*2.1)*0.15 + (Math.random()-0.5)*0.06;
+  });
   Object.values(modelRegistry).forEach(m=>{
     const t = (now - m.animStart)/1000;
     POSE_FNS[m.archetype](m, m.animState, t);
-    m.renderer.render(m.scene, m.camera);
   });
+  arena.renderer.render(arena.scene, arena.camera);
 }
 requestAnimationFrame(animateModels);
 
 /* =========================================================================
    DOM — built once, then patched in place (never innerHTML-replaced) so the
-   live WebGL canvases are never destroyed/recreated.
+   live WebGL canvas is never destroyed/recreated.
    ========================================================================= */
 function buildLayout(){
   const app = document.getElementById('app');
   app.innerHTML = `
     <div class="title">RIFT TACTICS</div>
     <div class="subtitle">Combat Prototype · <span id="round-label"></span></div>
-    <div class="enemy-row" id="enemy-row"></div>
     <div class="log-box" id="logbox"></div>
+    <div class="arena-wrap" id="arena-wrap"></div>
     <div id="status-banner" class="status-banner"></div>
-    <div id="command-area"></div>
+    <div class="enemy-row" id="enemy-row"></div>
     <div class="rule"></div>
     <div class="party-row" id="party-row"></div>
+    <div id="command-area"></div>
     <div class="combo-guide">
       <div class="g-title">Known Arts</div>
       ${ARTS.map(a=>`<div>${a.seq.map(d=>DIR_ICON[d]).join(' ')} — <code>${a.name}</code> (×${a.mult})</div>`).join('')}
     </div>
   `;
+
+  arena = createArena(document.getElementById('arena-wrap'));
+  state.enemies.forEach(e=> createArenaModel(e.id, arena.scene));
+  state.heroes.forEach(h=> createArenaModel(h.id, arena.scene));
 
   const enemyRow = document.getElementById('enemy-row');
   state.enemies.forEach(e=>{
@@ -1006,13 +1137,11 @@ function buildLayout(){
     card.addEventListener('click', ()=>selectTarget(e.id));
     card.innerHTML = `
       <div class="enemy-tag">${e.tag}</div>
-      <div class="sprite-slot" id="slot-${e.id}"></div>
       <div class="enemy-name">${e.name}</div>
       <div class="hpbar-wrap"><div class="hpbar" id="hp-${e.id}"></div></div>
       <div class="hptext" id="hpt-${e.id}"></div>
     `;
     enemyRow.appendChild(card);
-    createMiniViewport(document.getElementById(`slot-${e.id}`), e.id);
   });
 
   const partyRow = document.getElementById('party-row');
@@ -1021,18 +1150,15 @@ function buildLayout(){
     card.className = 'hero-card';
     card.dataset.hid = h.id;
     card.innerHTML = `
-      <div class="sprite-slot" id="slot-${h.id}"></div>
       <div class="hero-name">${h.name}</div>
       <div class="hero-class">${h.cls}</div>
       <div class="hpbar-wrap"><div class="hpbar" id="hp-${h.id}"></div></div>
       <div class="stat-row"><span id="hpt-${h.id}"></span><span>AP ${h.maxAp}</span></div>
     `;
     partyRow.appendChild(card);
-    createMiniViewport(document.getElementById(`slot-${h.id}`), h.id);
   });
 }
 
-let lastAnim = {};
 function update(){
   document.getElementById('round-label').textContent = `Round ${state.round}`;
 
@@ -1051,13 +1177,8 @@ function update(){
     card.classList.toggle('dead', !e.alive);
     card.classList.toggle('targetable', e.alive);
     card.classList.toggle('selected', state.selectedTargetId===e.id);
-    const wasAnim = lastAnim[e.id];
-    if(wasAnim !== e.anim){
-      card.classList.remove('anim-hit','anim-attack');
-      if(e.anim==='hit') void card.offsetWidth, card.classList.add('anim-hit');
-      if(e.anim==='attack') void card.offsetWidth, card.classList.add('anim-attack');
-      lastAnim[e.id] = e.anim;
-    }
+    const m = modelRegistry[e.id];
+    if(m && m.ring) m.ring.visible = e.alive && state.selectedTargetId===e.id;
     document.getElementById(`hp-${e.id}`).style.width = pct+'%';
     document.getElementById(`hp-${e.id}`).style.background = hpColor(pct);
     document.getElementById(`hpt-${e.id}`).textContent = `${e.hp}/${e.maxHp}`;
@@ -1069,12 +1190,6 @@ function update(){
     card.classList.toggle('active', state.phase==='command' && idx===state.activeHeroIdx);
     card.classList.toggle('ready', !!state.pendingActions[h.id]);
     card.classList.toggle('dead', !h.alive);
-    const wasAnim = lastAnim[h.id];
-    if(wasAnim !== h.anim){
-      card.classList.remove('anim-hit');
-      if(h.anim==='hit') void card.offsetWidth, card.classList.add('anim-hit');
-      lastAnim[h.id] = h.anim;
-    }
     document.getElementById(`hp-${h.id}`).style.width = pct+'%';
     document.getElementById(`hp-${h.id}`).style.background = hpColor(pct);
     document.getElementById(`hpt-${h.id}`).textContent = `${h.hp}/${h.maxHp}`;
