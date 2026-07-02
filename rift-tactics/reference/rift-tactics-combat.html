@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>RIFT TACTICS — Combat Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d0e16;
+    --bg-vign:#15121c;
+    --panel:#181b28;
+    --panel-light:#222639;
+    --panel-border:#2f3348;
+    --ember:#e2793d;
+    --ember-dim:#8a4d29;
+    --teal:#4fd1c0;
+    --blood:#d2495a;
+    --gold:#dcb35f;
+    --text:#ece7da;
+    --text-dim:#8d8aa0;
+    --hp-good:#5fbf6a;
+    --hp-mid:#dcb35f;
+    --hp-low:#d2495a;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overflow-x:hidden;}
+  body{
+    background:
+      radial-gradient(ellipse at 50% -10%, #241c2c 0%, transparent 55%),
+      radial-gradient(ellipse at 50% 110%, #1a1420 0%, transparent 50%),
+      var(--bg);
+    min-height:100vh;
+  }
+  #app{max-width:520px;margin:0 auto;padding:14px 12px 40px;min-height:100vh;position:relative;}
+
+  .title{
+    font-family:'Cinzel',serif;
+    font-weight:900;
+    letter-spacing:0.14em;
+    font-size:20px;
+    text-align:center;
+    color:var(--ember);
+    text-shadow:0 0 18px rgba(226,121,61,0.35);
+    margin:4px 0 2px;
+  }
+  .subtitle{
+    text-align:center;
+    font-size:10.5px;
+    letter-spacing:0.2em;
+    text-transform:uppercase;
+    color:var(--text-dim);
+    margin-bottom:14px;
+  }
+
+  /* divider */
+  .rule{
+    height:1px;
+    background:linear-gradient(90deg, transparent, var(--panel-border) 20%, var(--panel-border) 80%, transparent);
+    margin:12px 0;
+  }
+
+  /* ENEMY ROW */
+  .enemy-row{display:flex; gap:8px; margin-bottom:10px;}
+  .enemy-card{
+    flex:1;
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:10px;
+    padding:9px 7px 8px;
+    text-align:center;
+    position:relative;
+    transition:transform .15s ease, box-shadow .15s ease, opacity .3s ease;
+  }
+  .enemy-card.targetable{cursor:pointer;}
+  .enemy-card.targetable:active{transform:scale(0.96);}
+  .enemy-card.dead{opacity:0.25; filter:grayscale(1);}
+  .enemy-card.selected{border-color:var(--blood); box-shadow:0 0 0 1px var(--blood), 0 0 16px rgba(210,73,90,0.4);}
+  .enemy-icon{font-size:26px; line-height:1; margin-bottom:4px; filter:drop-shadow(0 2px 6px rgba(0,0,0,0.6));}
+  .enemy-name{font-size:10px; font-weight:700; letter-spacing:0.02em; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .enemy-tag{font-size:8px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:5px;}
+  .hpbar-wrap{height:6px; border-radius:4px; background:#0b0c13; overflow:hidden; border:1px solid #000; margin-top:4px;}
+  .hpbar{height:100%; border-radius:4px; transition:width .4s cubic-bezier(.4,0,.2,1); background:var(--hp-good);}
+  .hptext{font-family:'JetBrains Mono',monospace; font-size:8.5px; color:var(--text-dim); margin-top:2px;}
+  .dmg-float{
+    position:absolute; top:-6px; left:50%; transform:translateX(-50%);
+    font-family:'JetBrains Mono',monospace; font-weight:700; font-size:15px;
+    color:var(--blood); text-shadow:0 0 8px rgba(0,0,0,0.8);
+    animation:floatUp 0.9s ease-out forwards; pointer-events:none;
+  }
+  .dmg-float.heal{color:var(--hp-good);}
+  .dmg-float.crit{color:var(--gold); font-size:18px;}
+  @keyframes floatUp{
+    0%{opacity:0; transform:translate(-50%,4px) scale(0.8);}
+    15%{opacity:1; transform:translate(-50%,-6px) scale(1.1);}
+    100%{opacity:0; transform:translate(-50%,-34px) scale(1);}
+  }
+
+  /* LOG */
+  .log-box{
+    background:#0b0c13;
+    border:1px solid var(--panel-border);
+    border-radius:8px;
+    padding:8px 10px;
+    height:64px;
+    overflow-y:auto;
+    font-size:11px;
+    color:var(--text-dim);
+    line-height:1.55;
+    margin-bottom:10px;
+  }
+  .log-box .entry{color:var(--text);}
+  .log-box .entry b{color:var(--ember);}
+  .log-box .entry.turn-marker{color:var(--teal); font-family:'Cinzel',serif; letter-spacing:0.08em; font-size:10px; text-transform:uppercase;}
+
+  /* COMBO THREAD — signature element */
+  .thread-wrap{
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:12px;
+    padding:14px 12px 12px;
+    margin-bottom:10px;
+  }
+  .thread-label{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin-bottom:10px;
+  }
+  .thread-label .who{font-family:'Cinzel',serif; font-weight:700; font-size:13px; color:var(--gold); letter-spacing:0.03em;}
+  .thread-label .ap{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim);}
+  .thread-line{
+    display:flex; align-items:center; justify-content:center;
+    min-height:44px; gap:6px; position:relative; margin-bottom:6px;
+  }
+  .thread-line::before{
+    content:''; position:absolute; left:8%; right:8%; top:50%; height:1px;
+    background:var(--panel-border); z-index:0;
+  }
+  .thread-bead{
+    width:34px; height:34px; border-radius:50%;
+    background:var(--panel-light); border:1px solid var(--panel-border);
+    display:flex; align-items:center; justify-content:center;
+    font-size:15px; font-weight:700; color:var(--text-dim);
+    position:relative; z-index:1;
+    animation:beadIn .2s ease-out;
+  }
+  @keyframes beadIn{from{transform:scale(0.4); opacity:0;} to{transform:scale(1); opacity:1;}}
+  .thread-bead.filled{background:var(--panel); border-color:var(--ember-dim); color:var(--ember);}
+  .thread-empty{font-size:11px; color:var(--text-dim); font-style:italic; z-index:1; background:var(--panel); padding:0 6px;}
+  .art-callout{
+    text-align:center; min-height:20px;
+    font-family:'Cinzel',serif; font-size:13px; font-weight:700;
+    letter-spacing:0.05em; color:var(--gold);
+    text-shadow:0 0 12px rgba(220,179,95,0.5);
+    animation:artPop .35s ease-out;
+  }
+  @keyframes artPop{from{opacity:0; transform:translateY(4px) scale(0.9);} to{opacity:1; transform:translateY(0) scale(1);}}
+  .art-hint{text-align:center; font-size:9.5px; color:var(--text-dim); min-height:14px;}
+
+  /* DIRECTION PAD */
+  .pad-grid{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    grid-template-rows:repeat(3, 1fr);
+    gap:6px;
+    max-width:220px;
+    margin:6px auto 12px;
+  }
+  .pad-btn{
+    aspect-ratio:1;
+    background:var(--panel-light);
+    border:1px solid var(--panel-border);
+    border-radius:10px;
+    color:var(--text);
+    font-size:18px;
+    display:flex; align-items:center; justify-content:center;
+    user-select:none;
+    transition:background .1s, transform .08s, border-color .1s;
+  }
+  .pad-btn:active{transform:scale(0.92); background:var(--ember-dim); border-color:var(--ember);}
+  .pad-btn.spacer{background:transparent; border:none;}
+  .pad-btn.high{grid-column:2; grid-row:1;}
+  .pad-btn.left{grid-column:1; grid-row:2;}
+  .pad-btn.right{grid-column:3; grid-row:2;}
+  .pad-btn.low{grid-column:2; grid-row:3;}
+  .pad-btn.center{grid-column:2; grid-row:2; background:transparent; border:1px dashed var(--panel-border); color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:9px;}
+
+  .action-row{display:flex; gap:8px; margin-bottom:4px;}
+  .btn{
+    flex:1;
+    padding:11px 6px;
+    border-radius:8px;
+    border:1px solid var(--panel-border);
+    background:var(--panel-light);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:12px;
+    letter-spacing:0.02em;
+    text-transform:uppercase;
+    text-align:center;
+  }
+  .btn:active{transform:scale(0.97);}
+  .btn.primary{background:linear-gradient(180deg, var(--ember), var(--ember-dim)); border-color:var(--ember); color:#1a0f06;}
+  .btn.ghost{background:transparent; color:var(--text-dim);}
+  .btn.guard{background:var(--panel); border-color:var(--teal); color:var(--teal);}
+  .btn:disabled{opacity:0.35;}
+
+  /* PARTY ROW */
+  .party-row{display:flex; gap:8px; margin-top:12px;}
+  .hero-card{
+    flex:1;
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:10px;
+    padding:8px 7px;
+    position:relative;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .hero-card.active{border-color:var(--ember); box-shadow:0 0 0 1px var(--ember), 0 0 14px rgba(226,121,61,0.35);}
+  .hero-card.ready::after{
+    content:'✓'; position:absolute; top:6px; right:6px;
+    color:var(--hp-good); font-size:11px; font-weight:700;
+  }
+  .hero-card.dead{opacity:0.3; filter:grayscale(1);}
+  .hero-name{font-size:10.5px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .hero-class{font-size:8px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:5px;}
+  .stat-row{display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:8px; color:var(--text-dim); margin-top:2px;}
+
+  .status-banner{
+    text-align:center; padding:22px 10px; border-radius:10px;
+    background:var(--panel); border:1px solid var(--panel-border); margin-bottom:12px;
+    display:none;
+  }
+  .status-banner.show{display:block;}
+  .status-banner h2{font-family:'Cinzel',serif; margin:0 0 6px; letter-spacing:0.05em; font-size:20px;}
+  .status-banner.victory h2{color:var(--teal);}
+  .status-banner.defeat h2{color:var(--blood);}
+  .status-banner p{color:var(--text-dim); font-size:12px; margin:0 0 14px;}
+
+  .resolving-note{
+    text-align:center; color:var(--text-dim); font-size:11px;
+    letter-spacing:0.08em; text-transform:uppercase; padding:10px 0;
+    font-family:'Cinzel',serif;
+  }
+
+  .combo-guide{
+    margin-top:16px; padding:10px 12px; background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:10px; font-size:10px; color:var(--text-dim); line-height:1.7;
+  }
+  .combo-guide .g-title{color:var(--gold); font-family:'Cinzel',serif; font-size:11px; letter-spacing:0.05em; margin-bottom:6px;}
+  .combo-guide code{color:var(--ember); font-family:'JetBrains Mono',monospace;}
+
+  /* ---- SPRITE RIG (Kael) ---- */
+  .sprite-slot{display:flex; align-items:center; justify-content:center; height:64px; margin-bottom:2px;}
+  .kael-rig{overflow:visible;}
+  .kael-rig .k-flash{opacity:0;}
+
+  @keyframes kaelIdle{0%,100%{transform:translateY(0);} 50%{transform:translateY(-2px);}}
+  .kael-rig.idle{animation:kaelIdle 2.4s ease-in-out infinite;}
+
+  @keyframes kaelLunge{0%{transform:translateX(0);} 40%{transform:translateX(7px);} 100%{transform:translateX(0);}}
+  .kael-rig.attack{animation:kaelLunge .5s ease-out;}
+  @keyframes swordSwing{0%{transform:rotate(-15deg);} 45%{transform:rotate(75deg);} 100%{transform:rotate(-15deg);}}
+  .kael-rig.attack .k-arm-sword{transform-box:fill-box; transform-origin:10% 30%; animation:swordSwing .5s ease-out;}
+
+  @keyframes kaelHit{0%,100%{transform:translateX(0);} 25%{transform:translateX(-4px);} 50%{transform:translateX(4px);} 75%{transform:translateX(-2px);}}
+  .kael-rig.hit{animation:kaelHit .35s ease-out;}
+  .kael-rig.hit .k-flash{animation:flashPulse .35s ease-out;}
+  @keyframes flashPulse{0%{opacity:.55;} 100%{opacity:0;}}
+
+  .kael-rig.guard .k-torso{transform:translateY(2px);}
+
+  @keyframes kaelDeath{to{transform:rotate(80deg) translateY(14px); opacity:.15;}}
+  .kael-rig.dead{animation:kaelDeath .7s ease-out forwards;}
+
+  /* generic card reactions for the rest of the cast */
+  @keyframes cardShake{0%,100%{transform:translateX(0);} 25%{transform:translateX(-3px);} 50%{transform:translateX(3px);} 75%{transform:translateX(-2px);}}
+  @keyframes cardLunge{0%{transform:translateY(0);} 40%{transform:translateY(-4px) scale(1.03);} 100%{transform:translateY(0);}}
+  .hero-card.anim-hit, .enemy-card.anim-hit{animation:cardShake .35s ease-out;}
+  .enemy-card.anim-attack{animation:cardLunge .4s ease-out;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+(function(){
+
+/* ---------- DATA ---------- */
+const DIRS = {H:'High', Lo:'Low', L:'Left', R:'Right'};
+const DIR_ICON = {H:'▲', Lo:'▼', L:'◀', R:'▶'};
+
+const ARTS = [
+  {seq:['H','H','H'], name:'Meteor Fall', mult:2.3, cost:3},
+  {seq:['L','R','L','R'], name:'Flurry Chain', mult:2.1, cost:4},
+  {seq:['H','Lo','H'], name:'Rising Tempest', mult:1.85, cost:3},
+  {seq:['Lo','Lo'], name:'Ground Break', mult:1.4, cost:2, stun:0.3},
+  {seq:['L','R'], name:'Twin Strike', mult:1.45, cost:2},
+  {seq:['R','L'], name:'Crosscut', mult:1.45, cost:2},
+  {seq:['H','H'], name:'Skyfall Cleave', mult:1.35, cost:2},
+];
+
+function makeHero(id,name,cls,hp,ap,speed,power,split,icon){
+  return {id,name,cls,maxHp:hp,hp,maxAp:ap,speed,power,split,icon,alive:true,guarding:false,anim:'idle'};
+}
+function makeEnemy(id,name,tag,hp,atkMin,atkMax,armor,icon,speed){
+  return {id,name,tag,maxHp:hp,hp,atkMin,atkMax,armor:armor||0,icon,alive:true,speed,anim:'idle'};
+}
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+/* ---------- KAEL SVG RIG ---------- */
+function svgKael(animState){
+  return `
+  <svg class="kael-rig ${animState}" viewBox="0 0 100 110" width="60" height="66">
+    <g class="k-legs">
+      <rect x="38" y="70" width="9" height="26" rx="3" fill="#3a2f28"/>
+      <rect x="54" y="70" width="9" height="26" rx="3" fill="#3a2f28"/>
+      <rect x="35" y="92" width="15" height="6" rx="2" fill="#20180f"/>
+      <rect x="51" y="92" width="15" height="6" rx="2" fill="#20180f"/>
+    </g>
+    <g class="k-torso">
+      <path d="M35 40 L66 40 L62 74 L39 74 Z" fill="#8a4d29"/>
+      <rect x="34" y="58" width="33" height="7" rx="2" fill="#e2793d"/>
+      <circle cx="50" cy="58" r="3" fill="#dcb35f"/>
+    </g>
+    <g class="k-arm-back">
+      <rect x="30" y="44" width="8" height="24" rx="4" fill="#6b3a20" transform="rotate(8 34 44)"/>
+    </g>
+    <g class="k-head">
+      <circle cx="50" cy="26" r="13" fill="#c98f5e"/>
+      <path d="M37 22 Q50 8 63 22 L63 18 Q50 4 37 18 Z" fill="#241a12"/>
+      <rect x="44" y="24" width="4" height="3" fill="#141018"/>
+      <rect x="53" y="24" width="4" height="3" fill="#141018"/>
+    </g>
+    <g class="k-arm-sword">
+      <rect x="62" y="40" width="9" height="22" rx="4" fill="#a85a2e"/>
+      <g transform="translate(66,40)">
+        <rect x="-3" y="-38" width="6" height="34" rx="1.5" fill="#d7d3c8"/>
+        <rect x="-6" y="-4" width="12" height="5" rx="1.5" fill="#dcb35f"/>
+        <rect x="-2.5" y="0" width="5" height="9" rx="1.5" fill="#4a3520"/>
+      </g>
+    </g>
+    <rect class="k-flash" x="18" y="0" width="64" height="100" fill="#ffffff"/>
+  </svg>`;
+}
+
+let state = {
+  phase:'command', // command | resolving | over
+  round:1,
+  heroes:[
+    makeHero('kael','Kael Ashborn','Blade',130,6,8,12,{H:8,Lo:9,L:10,R:10},'⚔️'),
+    makeHero('rin','Rin Vasker','Twinblade',98,7,12,9,{H:6,Lo:6,L:10,R:10},'🗡️'),
+    makeHero('mira','Mira Thorncall','Spiritcaller',82,6,7,11,{H:14,Lo:10,L:5,R:5},'🔮'),
+  ],
+  enemies:[
+    makeEnemy('stalker','Ashclaw Stalker','Feral',150,12,19,0,'🐺',11),
+    makeEnemy('sentinel','Husk Sentinel','Armored',210,10,16,5,'🛡️',5),
+    makeEnemy('wraith','Wraith of the Hollow','Spectral',95,9,15,0,'👻',9),
+  ],
+  log:[],
+  activeHeroIdx:0,
+  currentSeq:[],
+  selectedTargetId:null,
+  pendingActions:{}, // heroId -> {type:'attack', seq, targetId} | {type:'guard'}
+  floatQueue:[],
+};
+
+function pushLog(html, marker){
+  state.log.push({html, marker});
+  if(state.log.length>60) state.log.shift();
+}
+
+/* ---------- COMBAT LOGIC ---------- */
+function matchArt(seq){
+  // exact match only, longest defined arts checked first
+  const sorted = [...ARTS].sort((a,b)=>b.seq.length-a.seq.length);
+  for(const art of sorted){
+    if(art.seq.length===seq.length && art.seq.every((d,i)=>d===seq[i])) return art;
+  }
+  return null;
+}
+function partialArtHint(seq){
+  if(seq.length===0) return null;
+  const candidates = ARTS.filter(a=>a.seq.length>seq.length && a.seq.slice(0,seq.length).every((d,i)=>d===seq[i]));
+  if(candidates.length===0) return null;
+  candidates.sort((a,b)=>a.seq.length-b.seq.length);
+  return candidates[0];
+}
+function calcHeroDamage(hero, seq){
+  let base = 0;
+  seq.forEach(d=> base += hero.split[d]);
+  base += hero.power*0.5;
+  const art = matchArt(seq);
+  const mult = art ? art.mult : 1.0;
+  const variance = 0.9 + Math.random()*0.2;
+  const dmg = Math.round(base*mult*variance);
+  return {dmg, art};
+}
+function livingHeroes(){ return state.heroes.filter(h=>h.alive); }
+function livingEnemies(){ return state.enemies.filter(e=>e.alive); }
+
+function startRound(){
+  state.phase='command';
+  state.pendingActions={};
+  state.activeHeroIdx = state.heroes.findIndex(h=>h.alive);
+  state.currentSeq=[];
+  state.selectedTargetId = livingEnemies()[0]?.id || null;
+  pushLog(`Round ${state.round}`, true);
+  render();
+}
+
+function confirmGuard(){
+  const hero = state.heroes[state.activeHeroIdx];
+  state.pendingActions[hero.id] = {type:'guard'};
+  advanceToNextHero();
+}
+function confirmAttack(){
+  const hero = state.heroes[state.activeHeroIdx];
+  if(state.currentSeq.length===0) return;
+  if(!state.selectedTargetId){ state.selectedTargetId = livingEnemies()[0]?.id; }
+  state.pendingActions[hero.id] = {type:'attack', seq:[...state.currentSeq], targetId:state.selectedTargetId};
+  advanceToNextHero();
+}
+function advanceToNextHero(){
+  state.currentSeq=[];
+  let idx = state.activeHeroIdx+1;
+  while(idx < state.heroes.length && !state.heroes[idx].alive) idx++;
+  if(idx >= state.heroes.length){
+    resolveRound();
+  } else {
+    state.activeHeroIdx = idx;
+    render();
+  }
+}
+
+function resolveRound(){
+  state.phase='resolving';
+  render();
+  setTimeout(()=>{ runResolution(); }, 400);
+}
+
+async function runResolution(){
+  const actors = [];
+  state.heroes.forEach(h=>{
+    if(h.alive && state.pendingActions[h.id]){
+      actors.push({type:'hero', ref:h, action:state.pendingActions[h.id], speed:h.speed});
+    }
+  });
+  state.enemies.forEach(e=>{
+    if(e.alive){
+      actors.push({type:'enemy', ref:e, speed:e.speed});
+    }
+  });
+  actors.sort((a,b)=>b.speed-a.speed);
+
+  for(const actor of actors){
+    if(actor.type==='hero'){
+      await doHeroAction(actor.ref, actor.action);
+    } else if(actor.ref.alive){
+      await doEnemyAction(actor.ref);
+    }
+    checkOver();
+    if(state.phase==='over'){ render(); return; }
+    await sleep(250);
+  }
+  finishRound();
+}
+
+async function doHeroAction(hero, action){
+  if(action.type==='guard'){
+    hero.guarding = true;
+    hero.anim = 'guard';
+    pushLog(`<b>${hero.name}</b> braces defensively.`);
+    render();
+    await sleep(450);
+    return;
+  }
+  const target = state.enemies.find(e=>e.id===action.targetId && e.alive) || livingEnemies()[0];
+  if(!target){ return; }
+
+  hero.anim = 'attack';
+  render();
+  await sleep(380); // wind-up + swing before impact lands
+
+  const {dmg, art} = calcHeroDamage(hero, action.seq);
+  const armorReduced = Math.max(1, dmg - target.armor);
+  target.hp = Math.max(0, target.hp - armorReduced);
+  target.anim = target.hp<=0 ? 'dead' : 'hit';
+  state.floatQueue.push({id:target.id, val:armorReduced, kind: art? 'crit':'normal', type:'enemy'});
+  if(art){
+    pushLog(`<b>${hero.name}</b> unleashes <b style="color:var(--gold)">${art.name}</b> on ${target.name} — ${armorReduced} dmg!`);
+  } else {
+    pushLog(`<b>${hero.name}</b> strikes ${target.name} for ${armorReduced} dmg.`);
+  }
+  if(target.hp<=0){
+    target.alive=false;
+    pushLog(`${target.name} is defeated!`);
+  }
+  if(art && art.stun && Math.random()<art.stun){
+    target.stunned = true;
+    pushLog(`${target.name} is staggered!`);
+  }
+  render();
+  await sleep(350);
+  hero.anim = 'idle';
+  if(target.alive) target.anim = 'idle';
+  render();
+}
+
+async function doEnemyAction(enemy){
+  const targets = livingHeroes();
+  if(targets.length===0) return;
+  if(enemy.stunned){ enemy.stunned=false; pushLog(`${enemy.name} is staggered and cannot act.`); return; }
+
+  enemy.anim = 'attack';
+  render();
+  await sleep(300);
+
+  const target = targets[Math.floor(Math.random()*targets.length)];
+  let dmg = Math.round(enemy.atkMin + Math.random()*(enemy.atkMax-enemy.atkMin));
+  if(target.guarding){ dmg = Math.round(dmg*0.45); }
+  target.hp = Math.max(0, target.hp-dmg);
+  target.anim = target.hp<=0 ? 'dead' : 'hit';
+  state.floatQueue.push({id:target.id, val:dmg, kind:'dmg', type:'hero'});
+  pushLog(`${enemy.name} hits <b>${target.name}</b> for ${dmg} dmg.`);
+  if(target.hp<=0){ target.alive=false; pushLog(`<b>${target.name}</b> has fallen!`); }
+  render();
+  await sleep(350);
+  enemy.anim = 'idle';
+  if(target.alive) target.anim = 'idle';
+  render();
+}
+
+function finishRound(){
+  state.heroes.forEach(h=> h.guarding=false);
+  checkOver();
+  if(state.phase!=='over'){
+    state.round++;
+    startRound();
+  } else {
+    render();
+  }
+}
+
+function checkOver(){
+  if(livingEnemies().length===0){ state.phase='over'; state.result='victory'; }
+  else if(livingHeroes().length===0){ state.phase='over'; state.result='defeat'; }
+}
+
+/* ---------- INPUT ---------- */
+function pressDir(d){
+  const hero = state.heroes[state.activeHeroIdx];
+  if(state.currentSeq.length>=hero.maxAp) return;
+  state.currentSeq.push(d);
+  render();
+}
+function undoDir(){ state.currentSeq.pop(); render(); }
+function clearSeq(){ state.currentSeq=[]; render(); }
+function selectTarget(id){
+  const e = state.enemies.find(x=>x.id===id);
+  if(!e || !e.alive) return;
+  state.selectedTargetId = id;
+  render();
+}
+function restart(){
+  state = JSON.parse(JSON.stringify(state)); // noop guard
+  location.reload();
+}
+
+/* ---------- RENDER ---------- */
+function hpPct(cur,max){ return Math.max(0,Math.min(100,(cur/max)*100)); }
+function hpColor(pct){ if(pct>55) return 'var(--hp-good)'; if(pct>25) return 'var(--hp-mid)'; return 'var(--hp-low)'; }
+
+function render(){
+  const app = document.getElementById('app');
+  const hero = state.heroes[state.activeHeroIdx];
+
+  let enemyHtml = state.enemies.map(e=>{
+    const pct = hpPct(e.hp,e.maxHp);
+    const selected = state.selectedTargetId===e.id ? 'selected':'';
+    const dead = !e.alive ? 'dead':'';
+    const animCls = e.anim==='hit' ? 'anim-hit' : (e.anim==='attack' ? 'anim-attack' : '');
+    return `<div class="enemy-card ${e.alive?'targetable':''} ${selected} ${dead} ${animCls}" data-eid="${e.id}" onclick="__game.selectTarget('${e.id}')">
+      <div class="enemy-tag">${e.tag}</div>
+      <div class="enemy-icon">${e.icon}</div>
+      <div class="enemy-name">${e.name}</div>
+      <div class="hpbar-wrap"><div class="hpbar" style="width:${pct}%; background:${hpColor(pct)}"></div></div>
+      <div class="hptext">${e.hp}/${e.maxHp}</div>
+    </div>`;
+  }).join('');
+
+  let logHtml = state.log.slice(-14).map(l=> l.marker ? `<div class="entry turn-marker">— ${l.html} —</div>` : `<div class="entry">${l.html}</div>`).join('');
+
+  let bodyHtml = '';
+
+  if(state.phase==='over'){
+    const won = state.result==='victory';
+    bodyHtml += `<div class="status-banner show ${won?'victory':'defeat'}">
+      <h2>${won?'VICTORY':'PARTY DEFEATED'}</h2>
+      <p>${won?'The Rift recoils. Your heroes stand over the wreckage of its spawn.':'The Ashclaw Stalker\'s pack drags your heroes into the mist...'}</p>
+      <button class="btn primary" style="max-width:200px;margin:0 auto;" onclick="__game.restart()">Fight Again</button>
+    </div>`;
+  }
+
+  let thread = '';
+  if(state.phase==='command'){
+    const seq = state.currentSeq;
+    const art = matchArt(seq);
+    const hint = partialArtHint(seq);
+    let beads = '';
+    if(seq.length===0){
+      beads = `<div class="thread-empty">Input a combo…</div>`;
+    } else {
+      beads = seq.map(d=>`<div class="thread-bead filled">${DIR_ICON[d]}</div>`).join('');
+    }
+    let calloutText = art ? art.name : (hint ? `→ ${hint.name}?` : (seq.length? 'Unnamed strike' : ''));
+    thread = `
+      <div class="thread-wrap">
+        <div class="thread-label">
+          <span class="who">${hero.icon} ${hero.name}</span>
+          <span class="ap">AP ${seq.length}/${hero.maxAp}</span>
+        </div>
+        <div class="thread-line">${beads}</div>
+        <div class="art-callout">${calloutText||'&nbsp;'}</div>
+        <div class="art-hint">${hero.cls} · Target: ${state.enemies.find(e=>e.id===state.selectedTargetId)?.name || '—'}</div>
+      </div>
+      <div class="pad-grid">
+        <button class="pad-btn high" onclick="__game.pressDir('H')">${DIR_ICON.H}</button>
+        <div></div>
+        <button class="pad-btn left" onclick="__game.pressDir('L')">${DIR_ICON.L}</button>
+        <button class="pad-btn center" onclick="__game.undoDir()">UNDO</button>
+        <button class="pad-btn right" onclick="__game.pressDir('R')">${DIR_ICON.R}</button>
+        <div></div>
+        <button class="pad-btn low" onclick="__game.pressDir('Lo')">${DIR_ICON.Lo}</button>
+        <div></div>
+      </div>
+      <div class="action-row">
+        <button class="btn ghost" onclick="__game.clearSeq()">Clear</button>
+        <button class="btn guard" onclick="__game.confirmGuard()">Guard</button>
+        <button class="btn primary" ${seq.length===0?'disabled':''} onclick="__game.confirmAttack()">Confirm</button>
+      </div>
+    `;
+  } else if(state.phase==='resolving'){
+    thread = `<div class="resolving-note">⚔ Resolving Round ${state.round} ⚔</div>`;
+  }
+
+  let partyHtml = state.heroes.map((h,idx)=>{
+    const pct = hpPct(h.hp,h.maxHp);
+    const isActive = state.phase==='command' && idx===state.activeHeroIdx;
+    const ready = state.pendingActions[h.id] ? 'ready':'';
+    const dead = !h.alive ? 'dead':'';
+    const animCls = h.anim==='hit' ? 'anim-hit' : '';
+    const visual = h.id==='kael'
+      ? `<div class="sprite-slot">${svgKael(h.anim||'idle')}</div>`
+      : `<div class="sprite-slot" style="font-size:30px;">${h.icon}</div>`;
+    return `<div class="hero-card ${isActive?'active':''} ${ready} ${dead} ${animCls}" data-hid="${h.id}">
+      ${visual}
+      <div class="hero-name">${h.name}</div>
+      <div class="hero-class">${h.cls}</div>
+      <div class="hpbar-wrap"><div class="hpbar" style="width:${pct}%; background:${hpColor(pct)}"></div></div>
+      <div class="stat-row"><span>${h.hp}/${h.maxHp}</span><span>AP ${h.maxAp}</span></div>
+    </div>`;
+  }).join('');
+
+  app.innerHTML = `
+    <div class="title">RIFT TACTICS</div>
+    <div class="subtitle">Combat Prototype · Round ${state.round}</div>
+    <div class="enemy-row">${enemyHtml}</div>
+    <div class="log-box" id="logbox">${logHtml}</div>
+    ${bodyHtml}
+    ${state.phase!=='over' ? thread : ''}
+    <div class="rule"></div>
+    <div class="party-row">${partyHtml}</div>
+    <div class="combo-guide">
+      <div class="g-title">Known Arts</div>
+      ${ARTS.map(a=>`<div>${a.seq.map(d=>DIR_ICON[d]).join(' ')} — <code>${a.name}</code> (×${a.mult})</div>`).join('')}
+    </div>
+  `;
+
+  const lb = document.getElementById('logbox');
+  if(lb) lb.scrollTop = lb.scrollHeight;
+
+  // floating damage numbers
+  if(state.floatQueue.length){
+    const queued = state.floatQueue;
+    state.floatQueue = [];
+    requestAnimationFrame(()=>{
+      queued.forEach(f=>{
+        const host = f.type==='hero'
+          ? document.querySelector(`.hero-card[data-hid="${f.id}"]`)
+          : document.querySelector(`.enemy-card[data-eid="${f.id}"]`);
+        if(!host) return;
+        const el = document.createElement('div');
+        el.className = 'dmg-float' + (f.kind==='crit' ? ' crit' : '');
+        el.textContent = '-'+f.val;
+        host.appendChild(el);
+        setTimeout(()=>el.remove(), 900);
+      });
+    });
+  }
+}
+
+window.__game = {pressDir, undoDir, clearSeq, confirmAttack, confirmGuard, selectTarget, restart};
+
+pushLog('The Rift tears open. Three horrors emerge.', true);
+render();
+
+})();
+</script>
+</body>
+</html>
