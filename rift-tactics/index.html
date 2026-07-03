@@ -336,9 +336,10 @@ async function doHeroAction(hero, action){
   const target = state.enemies.find(e=>e.id===action.targetId && e.alive) || livingEnemies()[0];
   if(!target){ return; }
 
-  hero.anim = 'attack';
+  const willTriggerArt = !!matchArt(action.seq);
+  hero.anim = willTriggerArt ? 'art' : 'attack';
   update();
-  await sleep(380);
+  await sleep(willTriggerArt ? 420 : 380);
 
   const {dmg, art} = calcHeroDamage(hero, action.seq);
   const armorReduced = Math.max(1, dmg - target.armor);
@@ -347,6 +348,8 @@ async function doHeroAction(hero, action){
   state.floatQueue.push({id:target.id, val:armorReduced, kind: art? 'crit':'normal', type:'enemy'});
   if(art){
     pushLog(`<b>${hero.name}</b> unleashes <b style="color:var(--gold)">${art.name}</b> on ${target.name} — ${armorReduced} dmg!`);
+    spawnArtBurst(target.id);
+    triggerShake(0.12, 260);
   } else {
     pushLog(`<b>${hero.name}</b> strikes ${target.name} for ${armorReduced} dmg.`);
   }
@@ -359,7 +362,7 @@ async function doHeroAction(hero, action){
     pushLog(`${target.name} is staggered!`);
   }
   update();
-  await sleep(350);
+  await sleep(art ? 420 : 350);
   hero.anim = 'idle';
   if(target.alive) target.anim = 'idle';
   update();
@@ -650,7 +653,7 @@ function buildMira(){
   root.add(weaponArm);
 
   root.scale.setScalar(0.78);
-  return {group:root, parts:{root, legGroup, torso, head, weaponArm, offArm}, materials, baseY:0, baseTorsoY:0.98, dualWield:false};
+  return {group:root, parts:{root, legGroup, torso, head, weaponArm, offArm, orb:orbMesh}, materials, baseY:0, baseTorsoY:0.98, dualWield:false, caster:true};
 }
 
 function buildSentinel(){
@@ -802,7 +805,7 @@ function buildWraith(){
 
 /* ---------- POSE FUNCTIONS (per-archetype animation state machine) ---------- */
 function poseBiped(m,state,t){
-  const {root,torso,head,weaponArm,offArm} = m.parts;
+  const {root,torso,head,weaponArm,offArm,orb} = m.parts;
   root.position.set(0,m.baseY,0);
   root.rotation.set(0,0,0);
   torso.position.y = m.baseTorsoY;
@@ -811,6 +814,7 @@ function poseBiped(m,state,t){
   if(offArm) offArm.rotation.set(0,0,0.2);
   flashMaterials(m.materials,0);
   resetOpacity(m.materials);
+  if(orb) orb.material.emissiveIntensity = 1.1 + Math.sin(t*3)*0.15;
 
   if(state==='idle'){
     root.position.y = m.baseY + Math.sin(t*1.8)*(m.heavy?0.015:0.035);
@@ -827,6 +831,28 @@ function poseBiped(m,state,t){
       const swing2 = Math.sin(p2*Math.PI);
       offArm.rotation.x = -0.3 + swing2*2.0;
       offArm.rotation.z = -swing2*0.4;
+    }
+  } else if(state==='art'){
+    const dur = m.heavy?0.95:0.75;
+    const p = Math.min(t/dur,1);
+    const swing = Math.sin(p*Math.PI);
+    root.position.y = m.baseY + Math.sin(p*Math.PI)*0.16;
+    root.rotation.y = Math.sin(p*Math.PI)*0.55;
+    if(m.caster){
+      weaponArm.rotation.x = -2.4 + swing*2.7;
+      weaponArm.rotation.z = swing*0.15;
+      if(offArm) offArm.rotation.x = -1.6 + swing*1.4;
+      if(orb) orb.material.emissiveIntensity = 1.1 + swing*2.6;
+    } else {
+      weaponArm.rotation.x = -0.5 + swing*2.9;
+      weaponArm.rotation.z = swing*0.75;
+      root.position.x = swing*(m.heavy?0.08:0.26);
+      if(m.dualWield && offArm){
+        const p2 = Math.min(Math.max(t-0.06,0)/dur,1);
+        const swing2 = Math.sin(p2*Math.PI);
+        offArm.rotation.x = -0.5 + swing2*2.9;
+        offArm.rotation.z = -swing2*0.75;
+      }
     }
   } else if(state==='guard'){
     torso.scale.set(1,0.92,1);
@@ -1040,12 +1066,15 @@ function buildDungeonEnvironment(scene){
   return {torchLights};
 }
 
+const CAM_BASE_POS = [6.96, 2.06, 2.05];
+const CAM_LOOK_AT = [0.25, 1.0, -1.2];
+
 function createArena(container){
   const scene = new THREE.Scene();
   const w = container.clientWidth || 480, h = container.clientHeight || 300;
   const camera = new THREE.PerspectiveCamera(38, w/h, 0.1, 30);
-  camera.position.set(6.96, 2.06, 2.05);
-  camera.lookAt(0.25, 1.0, -1.2);
+  camera.position.set(...CAM_BASE_POS);
+  camera.lookAt(...CAM_LOOK_AT);
 
   scene.add(new THREE.AmbientLight(0x4a3f5c, 0.6));
   const key = new THREE.DirectionalLight(0xffb27a, 1.05); key.position.set(3,5,4); scene.add(key);
@@ -1059,6 +1088,85 @@ function createArena(container){
   container.appendChild(renderer.domElement);
 
   return {scene, camera, renderer, torchLights};
+}
+
+/* ---- Art-trigger flourish FX: gold shockwave + sparks at the target, plus a brief camera shake ---- */
+const activeArtFx = [];
+let shakeMag = 0, shakeUntil = 0;
+
+function triggerShake(mag, durMs){
+  shakeMag = mag;
+  shakeUntil = performance.now() + durMs;
+}
+
+function spawnArtBurst(targetId){
+  const m = modelRegistry[targetId];
+  if(!m || !arena) return;
+  const origin = new THREE.Vector3();
+  m.anchor.getWorldPosition(origin);
+
+  const group = new THREE.Group();
+  group.position.copy(origin);
+  arena.scene.add(group);
+
+  const ringMat = new THREE.MeshBasicMaterial({color:0xdcb35f, transparent:true, opacity:0.95, side:THREE.DoubleSide});
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.08,0.22,28), ringMat);
+  ring.rotation.x = -Math.PI/2;
+  ring.position.y = 0.03;
+  group.add(ring);
+
+  const sparkMat = new THREE.MeshBasicMaterial({color:0xffcf7a, transparent:true, opacity:1});
+  const sparks = [];
+  const sparkCount = 10;
+  for(let i=0;i<sparkCount;i++){
+    const s = new THREE.Mesh(new THREE.TetrahedronGeometry(0.055), sparkMat);
+    const angle = (i/sparkCount)*Math.PI*2 + Math.random()*0.4;
+    s.position.set(0, 0.9 + Math.random()*0.3, 0);
+    s.userData.dir = new THREE.Vector3(Math.cos(angle)*0.9, 0.7+Math.random()*0.6, Math.sin(angle)*0.9);
+    group.add(s);
+    sparks.push(s);
+  }
+
+  activeArtFx.push({group, ring, ringMat, sparks, sparkMat, start: performance.now()});
+}
+
+function updateArtFx(now){
+  for(let i=activeArtFx.length-1;i>=0;i--){
+    const fx = activeArtFx[i];
+    const p = Math.min((now - fx.start)/600, 1);
+    fx.ring.scale.setScalar(1 + p*9);
+    fx.ringMat.opacity = 0.95*(1-p);
+    fx.sparkMat.opacity = 1-p;
+    fx.sparks.forEach(s=>{
+      s.position.addScaledVector(s.userData.dir, 0.045);
+      s.userData.dir.y -= 0.012;
+      s.scale.setScalar(Math.max(0.15, 1-p*0.6));
+    });
+    if(p>=1){
+      arena.scene.remove(fx.group);
+      fx.ringMat.dispose();
+      fx.ring.geometry.dispose();
+      fx.sparkMat.dispose();
+      fx.sparks.forEach(s=>s.geometry.dispose());
+      activeArtFx.splice(i,1);
+    }
+  }
+}
+
+function updateCameraShake(now){
+  if(now < shakeUntil){
+    const k = shakeMag * (shakeUntil-now)/260;
+    arena.camera.position.set(
+      CAM_BASE_POS[0] + (Math.random()-0.5)*k,
+      CAM_BASE_POS[1] + (Math.random()-0.5)*k,
+      CAM_BASE_POS[2] + (Math.random()-0.5)*k
+    );
+    arena.camera.lookAt(...CAM_LOOK_AT);
+  } else if(shakeMag>0){
+    shakeMag = 0;
+    arena.camera.position.set(...CAM_BASE_POS);
+    arena.camera.lookAt(...CAM_LOOK_AT);
+  }
 }
 
 function createArenaModel(id, scene){
@@ -1099,6 +1207,8 @@ function animateModels(now){
     const t = (now - m.animStart)/1000;
     POSE_FNS[m.archetype](m, m.animState, t);
   });
+  updateArtFx(now);
+  updateCameraShake(now);
   arena.renderer.render(arena.scene, arena.camera);
 }
 requestAnimationFrame(animateModels);
