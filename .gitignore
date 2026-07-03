@@ -2,3 +2,17 @@
 node_modules/
 .env.local
 *.env
+
+# Unity project (Mistforge/)
+Mistforge/Library/
+Mistforge/Temp/
+Mistforge/Logs/
+Mistforge/Build/
+Mistforge/Builds/
+Mistforge/UserSettings/
+Mistforge/MemoryCaptures/
+Mistforge/obj/
+Mistforge/*.csproj
+Mistforge/*.sln
+Mistforge/.vs/
+Mistforge/.idea/
